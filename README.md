@@ -17,7 +17,9 @@ Created by : Eko Rudiawan Jamzuri
 
 * Running program
 
-    ```console
+    ```bash
+    ek91@BarelangFC:~$ git clone https://github.com/ekorudiawan/BarelangFC-Particle-Filter-Sim.git
+    ek91@BarelangFC:~$ cd BarelangFC-Particle-Filter-Sim/Source-Code/
     ek91@BarelangFC:~$ python Barelang-FC-Particle-Filter-Sim.py
     ```
 
