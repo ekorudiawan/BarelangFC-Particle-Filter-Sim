@@ -41,4 +41,5 @@ Created by : Eko Rudiawan Jamzuri
 
 ## References
 
+* [Kalman and Bayesian Filters in Python by Roger R. Labbe](https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python)
 * [Adiprawita, Widyawardana, et al. "New resampling algorithm for particle filter localization for mobile robot with 3 ultrasonic sonar sensor." Electrical Engineering and Informatics (ICEEI), 2011 International Conference on. IEEE, 2011.](http://ieeexplore.ieee.org/abstract/document/6021733/)
