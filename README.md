@@ -1,2 +1,4 @@
 # BarelangFC-Particle-Filter-Sim
-Barelang FC Particle Filter Localization Simulation
+Barelang FC Particle Filter Localization Simulator
+Created by : Eko Rudiawan Jamzuri
+

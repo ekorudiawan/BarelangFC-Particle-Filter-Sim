@@ -58,8 +58,6 @@ def main():
 
     gambarLapangan = np.zeros((800,1100,3), np.uint8)
     
-
-
     # Simualte velocity value
     # X Y alpha velocity command from robot
     simVelocity = np.empty([3], dtype=int)
@@ -79,7 +77,7 @@ def main():
     loop = 0
 
     while True:
-        print 'Loop : %d'%loop
+        # print 'Loop : %d'%loop
         gambarLapangan[:] = (0, 255, 0)
         cv2.rectangle(gambarLapangan,(100,100),(1000,700),(255,255,255),3) # GARIS LUAR
         cv2.rectangle(gambarLapangan,(40,530),(100,270),(255,255,255),3) #garis LUAR gawang kiri
@@ -90,26 +88,33 @@ def main():
         cv2.circle(gambarLapangan,(550,400), 75, (255,255,255), 3) # LINGKARAN TENGAH
         cv2.circle(gambarLapangan,(310,400), 3, (255,255,255), 5)
         cv2.circle(gambarLapangan,(790,400), 3, (255,255,255), 5)
-        
+        # cv2.imwrite("GambarLapangan.jpg", gambarLapangan)
+        # break
         # X = 5, Y = 0, alpha = 0
         simVelocity[0] = 10 
-        simVelocity[1] = 5 
+        simVelocity[1] = 0 
         simVelocity[2] = 0 
         # Simulate robot movement
         robotPosition[0] += simVelocity[0]
         robotPosition[1] += simVelocity[1]
-        print 'Robot position : (%d,%d)'%(robotPosition[0],robotPosition[1])
+        # print 'Robot position : (%d,%d)'%(robotPosition[0],robotPosition[1])
 
         # Predict movement of particles
         # print 'Process ==> Predict movement of particles'
         particlesPosition[:,0] += simVelocity[0]
         particlesPosition[:,1] += simVelocity[1]
-        print 'Particles position'
-        print particlesPosition
+        # Simulate noise movement of robot with error stddev = 10
+        particlesPosition[:,0] = normal(particlesPosition[:,0], 10)
+        particlesPosition[:,1] = normal(particlesPosition[:,1], 10)
+
+        # print 'Particles position'
+        # print particlesPosition
         # Update measurement
         # Measurement distance between robot and landmarks
         for i in range (0,totalLandmarks):
             distanceRobotToLandmarks[i] = math.hypot(robotPosition[0] - landmarksPosition[i,0], robotPosition[1] - landmarksPosition[i,1])
+            # Simulate noise with random gaussian from measurment
+            distanceRobotToLandmarks[i] = normal(distanceRobotToLandmarks[i], 10)
         # print 'Distance Robot to Landmarks :'
         # print distanceRobotToLandmarks
         # Measurement distance between particles and landmarks
@@ -139,12 +144,11 @@ def main():
         mean = np.average(pos, weights=particlesWeight, axis=0)    
 
         estimatePosition = mean
-        print 'Estimate Position : (%d,%d)'%(estimatePosition[0],estimatePosition[1])
-
-
-        cv2.circle(gambarLapangan,(robotPosition[0]+100, 800 - (robotPosition[1]+100) ), 7, (0,255,255), -1)
+        # print 'Estimate Position : (%d,%d)'%(estimatePosition[0],estimatePosition[1])
+        
         for i in range (0, totalParticles):
             cv2.circle(gambarLapangan,(particlesPosition[i,0]+100, 800 - (particlesPosition[i,1]+100) ), 7, (0,0,255), -1)
+        cv2.circle(gambarLapangan,(robotPosition[0]+100, 800 - (robotPosition[1]+100) ), 7, (0,255,255), -1)
         cv2.circle(gambarLapangan,(int(estimatePosition[0])+100, 800 - (int(estimatePosition[1])+100)), 7, (255,0,0), -1)
         cv2.imshow("Barelang FC - Localization ", gambarLapangan)
 
@@ -173,13 +177,13 @@ def main():
         _90PercentParticle = totalParticles - _10PercentParticle
 
         for i in range (_10PercentParticle + 1, _90PercentParticle):
-            particlesPosition[i,0] = normal(xHighest, 50)
-            particlesPosition[i,1] = normal(yHighest, 50) 
+            particlesPosition[i,0] = normal(xHighest, 20)
+            particlesPosition[i,1] = normal(yHighest, 20) 
 
         loop += 1     
         k = cv2.waitKey(1000)
         if k == ord('x'):         # X
             break
-        
+
 if __name__ == "__main__":
     main()
