@@ -3,6 +3,7 @@ import socket
 import sys
 import numpy as np
 from numpy.random import uniform
+from numpy.random import randint
 from numpy.random import randn
 from numpy.random import normal
 import matplotlib.pyplot as plt
@@ -23,7 +24,7 @@ UDP_PORT = 5005
 # Satuan dalam CM
 fieldLength = 900
 fieldWidth = 600
-totalParticles = 300
+totalParticles = 100
 totalLandmarks = 2
 deltaTime = 1
 
@@ -40,8 +41,11 @@ estimatePosition = np.zeros((3))
 
 # Landmarks position 2D array
 landmarksPosition = np.zeros((totalLandmarks, 2))
+
 particlesGlobalPosition = np.zeros((totalParticles, 3))
 particlesLocalPosition = np.zeros((totalParticles, 3))
+particlesInitialPosition = np.zeros((totalParticles, 3))
+
 distanceRobotToLandmarks = np.zeros((totalLandmarks))
 distanceParticlesToLandmarks = np.zeros((totalParticles, totalLandmarks))
 particlesWeight= np.zeros((totalParticles))
@@ -116,11 +120,6 @@ def worldCoorToImageCoor(x, y):
     return x, y
 
 def main():
-    # Initialize robot position
-    robotGlobalPosition[0] = uniform(0, fieldLength)
-    robotGlobalPosition[1] = uniform(0, fieldWidth)
-    robotGlobalPosition[2] = uniform(0, 360)
-    
     # Set initial location of robot
     robotInitialPosition[0] = 450
     robotInitialPosition[1] = 300
@@ -146,17 +145,24 @@ def main():
   
     velFromKinematic[0] = 0.02
     velFromKinematic[1] = 0.00
-    velFromKinematic[2] = 0.5
+    velFromKinematic[2] = 0.0
 
     # Create random position of particles
     # print 'Process ==> Create random particles'
-    particlesGlobalPosition[:, 0] = uniform(0, fieldLength, size=totalParticles)
-    particlesGlobalPosition[:, 1] = uniform(0, fieldWidth, size=totalParticles)
-    particlesGlobalPosition[:, 2] = robotGlobalPosition[2]
+    # particlesInitialPosition[:, 0] = uniform(0, fieldLength, size=totalParticles)
+    # particlesInitialPosition[:, 1] = uniform(fieldWidth, 0, size=totalParticles)
+    # particlesInitialPosition[:, 2] = uniform(0, 360, size=totalParticles) 
+    particlesInitialPosition[:, 0] = randn(totalParticles) * 10
+    particlesInitialPosition[:, 1] = randn(totalParticles) * 10
+    particlesInitialPosition[:, 2] = uniform(0, 360, size=totalParticles)
+
+    particlesGlobalPosition[:,0] = 0
+    particlesGlobalPosition[:,1] = 0
+    particlesGlobalPosition[:,2] = 0
 
     particlesLocalPosition[:,0] = 0
     particlesLocalPosition[:,1] = 0
-    particlesLocalPosition[:,2] = particlesGlobalPosition[:, 2]
+    particlesLocalPosition[:,2] = 0
     # print 'Particles position :'
     # print particlesGlobalPosition
 
@@ -172,6 +178,9 @@ def main():
     nowTime = 0
     lastTime = 0
     loop = 0
+
+    # print rand(100)
+
     while True:
         # linux
         nowTime = time.clock()
@@ -275,21 +284,31 @@ def main():
                 if particlesLocalPosition[i, 2] < 0:
                     particlesLocalPosition[i, 2] = 359
                 # Create matrix rotation
-                theta = np.radians(particlesLocalPosition[i,2])
+                # Create matrix rotation
+                angle = particlesInitialPosition[i,2] + particlesLocalPosition[i,2]
+                # motion model heading
+                if angle >= 360:
+                    angle = 0
+                if angle < 0:
+                    angle = 359
+                theta = np.radians(angle)
                 c, s = np.cos(theta), np.sin(theta)
                 R = np.array(((c,-s), (s, c)))
                 npOutMatMul = np.matmul(R, particlesLocalPosition[i,:2]) 
-                particlesGlobalPosition[i,0] += npOutMatMul[0]
-                particlesGlobalPosition[i,1] += npOutMatMul[1]
-                particlesGlobalPosition[i,2] = particlesLocalPosition[i,2]
+                particlesGlobalPosition[i,0] = npOutMatMul[0] + particlesInitialPosition[i,0]
+                particlesGlobalPosition[i,1] = npOutMatMul[1] + particlesInitialPosition[i,0]
+                particlesGlobalPosition[i,2] = angle
                 # Jika keluar lapangan random partikel yang baru
                 if particlesGlobalPosition[i,0] < 0 or particlesGlobalPosition[i,1] < 0 or particlesGlobalPosition[i,0] > fieldLength or particlesGlobalPosition[i,1] > fieldWidth:
-                    particlesGlobalPosition[i, 0] = normal(estimatePosition[0], 20)
-                    particlesGlobalPosition[i, 1] = normal(estimatePosition[1], 20)
-                    particlesGlobalPosition[i, 2] = robotGlobalPosition[2]
+                    particlesInitialPosition[i, 0] = uniform(0, fieldLength)
+                    particlesInitialPosition[i, 1] = uniform(0, fieldWidth)
+                    particlesInitialPosition[i, 2] = uniform(0, 360)
+                    particlesGlobalPosition[i, 0] = 0
+                    particlesGlobalPosition[i, 1] = 0
+                    particlesGlobalPosition[i, 2] = 0
                     particlesLocalPosition[i, 0] = 0
                     particlesLocalPosition[i, 1] = 0
-                    particlesLocalPosition[i, 2] = particlesGlobalPosition[i, 2]
+                    particlesLocalPosition[i, 2] = 0
             
 
             # print 'Particles position'
@@ -400,24 +419,30 @@ def main():
                 _10PercentParticle = int(totalParticles * 0.1)
 
                 for i in range (0, _10PercentParticle):
-                    particlesGlobalPosition[i,0] = uniform(0, fieldLength)
-                    particlesGlobalPosition[i,1] = uniform(0, fieldWidth)
-                    particlesGlobalPosition[i,2] = robotGlobalPosition[2]
+                    particlesInitialPosition[i,0] = uniform(0, fieldLength)
+                    particlesInitialPosition[i,1] = uniform(0, fieldWidth)
+                    particlesInitialPosition[i,2] = uniform(0, 360)
+                    particlesGlobalPosition[i,0] = 0
+                    particlesGlobalPosition[i,1] = 0
+                    particlesGlobalPosition[i,2] = 0
                     particlesLocalPosition[i, 0] = 0
                     particlesLocalPosition[i, 1] = 0
-                    particlesLocalPosition[i, 2] = particlesGlobalPosition[i, 2]
+                    particlesLocalPosition[i, 2] = 0
 
                 _90PercentParticle = totalParticles - _10PercentParticle
 
                 # _90PercentParticle = totalParticles - 0
 
                 for i in range (_10PercentParticle + 1, _90PercentParticle):
-                    particlesGlobalPosition[i,0] = normal(estimatePosition[0], 10)
-                    particlesGlobalPosition[i,1] = normal(estimatePosition[1], 10) 
-                    particlesGlobalPosition[i,2] = robotGlobalPosition[2]
+                    particlesInitialPosition[i,0] = normal(xHighest, 10)
+                    particlesInitialPosition[i,1] = normal(yHighest, 10)
+                    particlesInitialPosition[i,2] = normal(thetaHighest, 5)
+                    particlesGlobalPosition[i,0] = 0
+                    particlesGlobalPosition[i,1] = 0
+                    particlesGlobalPosition[i,2] = 0
                     particlesLocalPosition[i, 0] = 0
                     particlesLocalPosition[i, 1] = 0
-                    particlesLocalPosition[i, 2] = particlesGlobalPosition[i, 2]
+                    particlesLocalPosition[i, 2] = 0
 
 if __name__ == "__main__":
     print 'Running BarelangFC - MCL Localization'
