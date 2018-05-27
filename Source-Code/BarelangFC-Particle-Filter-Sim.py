@@ -24,7 +24,7 @@ UDP_PORT = 5005
 # Satuan dalam CM
 fieldLength = 900
 fieldWidth = 600
-totalParticles = 100
+totalParticles = 1000
 totalLandmarks = 2
 deltaTime = 1
 
@@ -149,12 +149,12 @@ def main():
 
     # Create random position of particles
     # print 'Process ==> Create random particles'
-    # particlesInitialPosition[:, 0] = uniform(0, fieldLength, size=totalParticles)
-    # particlesInitialPosition[:, 1] = uniform(fieldWidth, 0, size=totalParticles)
-    # particlesInitialPosition[:, 2] = uniform(0, 360, size=totalParticles) 
-    particlesInitialPosition[:, 0] = randn(totalParticles) * 10
-    particlesInitialPosition[:, 1] = randn(totalParticles) * 10
-    particlesInitialPosition[:, 2] = uniform(0, 360, size=totalParticles)
+    particlesInitialPosition[:, 0] = uniform(0, fieldLength, size=totalParticles)
+    particlesInitialPosition[:, 1] = uniform(0, fieldWidth, size=totalParticles)
+    particlesInitialPosition[:, 2] = uniform(0, 360, size=totalParticles) 
+    particlesInitialPosition[:, 0] = np.random.choice(particlesInitialPosition[:, 0], totalParticles) 
+    particlesInitialPosition[:, 1] = np.random.choice(particlesInitialPosition[:, 1], totalParticles)
+    particlesInitialPosition[:, 2] = np.random.choice(360, totalParticles)
 
     particlesGlobalPosition[:,0] = 0
     particlesGlobalPosition[:,1] = 0
@@ -434,8 +434,8 @@ def main():
                 # _90PercentParticle = totalParticles - 0
 
                 for i in range (_10PercentParticle + 1, _90PercentParticle):
-                    particlesInitialPosition[i,0] = normal(xHighest, 10)
-                    particlesInitialPosition[i,1] = normal(yHighest, 10)
+                    particlesInitialPosition[i,0] = normal(xHighest, 0.1)
+                    particlesInitialPosition[i,1] = normal(yHighest, 0.1)
                     particlesInitialPosition[i,2] = normal(thetaHighest, 5)
                     particlesGlobalPosition[i,0] = 0
                     particlesGlobalPosition[i,1] = 0
