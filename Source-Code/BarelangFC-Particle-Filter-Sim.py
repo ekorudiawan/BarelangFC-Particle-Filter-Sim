@@ -150,12 +150,12 @@ def main():
     # print particlesGlobalPosition
 
     # Create UDP client to receive data from kinematic
-    # try:
-    #     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 
-    #     sock.bind((UDP_IP, UDP_PORT))
-    # except socket.error:
-    #     print 'Failed to create socket'
-    #     sys.exit()
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 
+        sock.bind((UDP_IP, UDP_PORT))
+    except socket.error:
+        print 'Failed to create socket'
+        sys.exit()
 
     # Nilai timing
     nowTime = 0
@@ -210,13 +210,13 @@ def main():
             # break
 
             # # Get data from kinematic
-            # data, _ = sock.recvfrom(1024) # buffer size is 1024 bytes
-            # # print "Vel Input : ", data
+            data, _ = sock.recvfrom(1024) # buffer size is 1024 bytes
+            # print "Vel Input : ", data
             
-            # strVelFromKinematic = data.split(",")
-            # velFromKinematic[0] = float(strVelFromKinematic[0])
-            # velFromKinematic[1] = float(strVelFromKinematic[1])
-            # velFromKinematic[2] = float(strVelFromKinematic[2])
+            strVelFromKinematic = data.split(",")
+            velFromKinematic[0] = float(strVelFromKinematic[0])
+            velFromKinematic[1] = float(strVelFromKinematic[1])
+            velFromKinematic[2] = float(strVelFromKinematic[2])
 
             realVelocity[:] = convertVel(robotID, velFromKinematic)
             # print "Kinematic Velocity : ", velFromKinematic
@@ -297,9 +297,15 @@ def main():
 
             # Update measurement
             # Measurement distance between robot and landmarks
-            for i in range (0,totalLandmarks):
-                distanceRobotToLandmarks[i] = distance.euclidean([robotGlobalPosition[:2]], [landmarksPosition[i]])
-            # print 'distance robot to l', distanceRobotToLandmarks
+            # for i in range (0,totalLandmarks):
+            #     distanceRobotToLandmarks[i] = distance.euclidean([robotGlobalPosition[:2]], [landmarksPosition[i]])
+            distanceRobotToLandmarks[0] = float(strVelFromKinematic[3])
+            distanceRobotToLandmarks[1] = float(strVelFromKinematic[4])
+            if distanceRobotToLandmarks[0] > 0 and distanceRobotToLandmarks[1] > 0:
+                resample = True
+            else:
+                resample = False
+            # # print 'distance robot to l', distanceRobotToLandmarks
                 # distanceRobotToLandmarks[i] = math.hypot(robotGlobalPosition[0] - landmarksPosition[i,0], robotGlobalPosition[1] - landmarksPosition[i,1])
                 # Simulate noise with random gaussian from measurment
                 # distanceRobotToLandmarks[i] = normal(distanceRobotToLandmarks[i], 10)
@@ -381,7 +387,7 @@ def main():
                 yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + open('stream.jpg', 'rb').read() + b'\r\n')
                     
             # Resample
-            resample = True
+            # resample = True
             if resample == True:
                 indexHighestWeight = np.argmax(particlesWeight)
                 xHighest = particlesGlobalPosition[indexHighestWeight,0]
