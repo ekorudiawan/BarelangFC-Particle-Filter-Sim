@@ -1,38 +1,63 @@
 from flask import Flask, render_template, Response, request
+from scipy.spatial import distance
+from numpy.random import uniform, normal
+import time
 import socket
 import sys
 import numpy as np
-from numpy.random import uniform
-from numpy.random import normal
 import scipy.stats
-from time import sleep
 import math
 import cv2
 import webbrowser
-from time import sleep
-import time
-from scipy.spatial import distance
 import os
+
+# Definisi ID robot
+robotID = 1
 
 # Set False for real localization
 simulationMode = True
 headingFromIMU = True
 
-# Main configuration
+# Main configuration to receive data from kinematic
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 
-# Satuan dalam CM
+# Configuration in Cm
 fieldLength = 900
 fieldWidth = 600
+
+# Particles and landmarks
 totalParticles = 100
 totalLandmarks = 2
 deltaTime = 1
 
-# Flask Webserver
-##############################################################################
-# Definisi ID robot
-robotID = 1
+mapImage = np.zeros((800,1100,3), np.uint8)
+
+# Global Variable
+robotGlobalPosition = np.zeros((3))
+robotInitialPosition = np.zeros((3))
+robotLocalPosition = np.zeros((3))
+
+# Landmarks position 2D array
+landmarksPosition = np.zeros((totalLandmarks, 2))
+
+# Particles position
+particlesGlobalPosition = np.zeros((totalParticles, 3))
+particlesLocalPosition = np.zeros((totalParticles, 3))
+particlesInitialPosition = np.zeros((totalParticles, 3))
+
+# Estimate position
+estimatePosition = np.zeros((3))
+estimateLocalPosition = np.zeros((3))
+ballEstimatePosition = np.zeros((2))
+
+distanceRobotToLandmarks = np.zeros((totalLandmarks))
+distanceParticlesToLandmarks = np.zeros((totalParticles, totalLandmarks))
+particlesWeight= np.zeros((totalParticles))
+
+velFromKinematic = np.zeros((3))
+
+realVelocity = np.zeros([3])
 
 app = Flask(__name__)
 
@@ -50,12 +75,10 @@ def video_feed():
     """Video streaming route. Put this in the src attribute of an img tag."""
     return Response(main(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
-#############################################################################
 
 # Convert robot velocity to cm/s
 # Loaded from calibrated value
 def convertVel(robotId, inputVel):
-    # print 'Input Vel', inputVel
     outputVel = np.zeros((3))
     if robotId == 1:
         if inputVel[0] == 0:
@@ -80,35 +103,7 @@ def worldCoorToImageCoor(x, y):
     return x, y
 
 def main():
-    mapImage = np.zeros((800,1100,3), np.uint8)
-
-    # Global Variable
-    robotGlobalPosition = np.zeros((3))
-    robotInitialPosition = np.zeros((3))
-    robotLocalPosition = np.zeros((3))
-
-    # Landmarks position 2D array
-    landmarksPosition = np.zeros((totalLandmarks, 2))
-
-    # Particles position
-    particlesGlobalPosition = np.zeros((totalParticles, 3))
-    particlesLocalPosition = np.zeros((totalParticles, 3))
-    particlesInitialPosition = np.zeros((totalParticles, 3))
-
-    # Estimate position
-    estimatePosition = np.zeros((3))
-    estimateLocalPosition = np.zeros((3))
-    ballEstimatePosition = np.zeros((2))
-
-    distanceRobotToLandmarks = np.zeros((totalLandmarks))
-    distanceParticlesToLandmarks = np.zeros((totalParticles, totalLandmarks))
-    particlesWeight= np.zeros((totalParticles))
-
-    velFromKinematic = np.zeros((3))
-
-    realVelocity = np.zeros([3])
-
-    # Set initial location of robot
+    # Set initial location of robot, Just for simulation
     robotInitialPosition[0] = 450
     robotInitialPosition[1] = 300
     robotInitialPosition[2] = 0 # Heading
@@ -119,8 +114,7 @@ def main():
     robotLocalPosition[1] = 0
     robotLocalPosition[2] = 0 # Heading
 
-    # Initialize landmark position
-    # Gawang lawan
+    # Initialize landmark position (left and right goal pole)
     landmarksPosition[0,0] = 900
     landmarksPosition[0,1] = 170
     landmarksPosition[1,0] = 900
@@ -133,15 +127,14 @@ def main():
     imuInitHeading = 0
     imuCurrentHeading = 45
 
-    ballDistance = 0
+    ballDistance = 20
 
     defineInitialPosition = True
-
     if defineInitialPosition == True:
         # Create 90 percent random particles from defined initial position and 10 percent from random uniform
         estimatePosition[0] = 450
         estimatePosition[1] = 300
-        estimatePosition[2] = 0 # Menghadap ke arah gawang lawan
+        estimatePosition[2] = 0 # Zero = Heading to goal opponent
 
         _10PercentParticle = int(totalParticles * 0.1)
 
@@ -174,17 +167,13 @@ def main():
         particlesInitialPosition[:,1] = uniform(0, fieldWidth, size=totalParticles)
         particlesInitialPosition[:,2] = uniform(0, 360, size=totalParticles) 
 
-    # print "Particles Initial Position", particlesInitialPosition
-
+    # Zero all global and local position of particles
     particlesGlobalPosition[:,0] = 0
     particlesGlobalPosition[:,1] = 0
     particlesGlobalPosition[:,2] = 0
-
     particlesLocalPosition[:,0] = 0
     particlesLocalPosition[:,1] = 0
     particlesLocalPosition[:,2] = 0
-    # print 'Particles position :'
-    # print particlesGlobalPosition
 
     # Create UDP client to receive data from kinematic
     if simulationMode == False:
@@ -195,56 +184,60 @@ def main():
             print 'Failed to create socket'
             sys.exit()
 
-    # Nilai timing
+    # Timing value
     nowTime = 0
     lastTime = 0
     loop = 0
 
     while True:
-        # linux
         nowTime = time.clock()
         timer = nowTime - lastTime
         halfDeltaTime = deltaTime / 2.00
-        # print 'Timer : ', timer
+        # Update every 0.5 * deltatime
         if timer > halfDeltaTime:
             lastTime = nowTime
             loop += 1
             print 'Runtime : {} s'.format(deltaTime*loop) 
-            mapImage[:] = (0, 255, 0)
-            cv2.rectangle(mapImage,(100,100),(1000,700),(255,255,255),3) # GARIS LUAR
-            cv2.rectangle(mapImage,(40,530),(100,270),(255,255,255),3) #garis LUAR gawang kiri
-            cv2.rectangle(mapImage,(1000,530),(1060,270),(255,255,255),3) #garis LUAR gawang kiri
-            cv2.rectangle(mapImage,(100,650),(200,150),(255,255,255),3) #garis LUAR gawang kiri
-            cv2.rectangle(mapImage,(900,650),(1000,150),(255,255,255),3) #garis LUAR gawang kiri
-            cv2.line(mapImage,(550,100),(550,700),(255,255,255),3) # garis tengah
-            cv2.circle(mapImage,(550,400), 75, (255,255,255), 3) # LINGKARAN TENGAH
-            cv2.circle(mapImage,(310,400), 3, (255,255,255), 5)
-            cv2.circle(mapImage,(790,400), 3, (255,255,255), 5)
 
-            textLine = "(0,0)"
-            x, y = worldCoorToImageCoor(0,0)
-            cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
+            mapFromFile = True
+            if mapFromFile == True:
+                mapImage[:] = cv2.imread('mapImage.jpg')
+            else:
+                mapImage[:] = (0, 255, 0)
+                cv2.rectangle(mapImage,(100,100),(1000,700),(255,255,255),3) # Garis Luar
+                cv2.rectangle(mapImage,(40,530),(100,270),(255,255,255),3) # Garis Luar Gawang Kiri
+                cv2.rectangle(mapImage,(1000,530),(1060,270),(255,255,255),3) # Garis Luar Gawang Kiri
+                cv2.rectangle(mapImage,(100,650),(200,150),(255,255,255),3) # Garis Luar Gawang Kiri
+                cv2.rectangle(mapImage,(900,650),(1000,150),(255,255,255),3) # Garis Luar Gawang Kiri
+                cv2.line(mapImage,(550,100),(550,700),(255,255,255),3) # Garis Tengah
+                cv2.circle(mapImage,(550,400), 75, (255,255,255), 3) # Lingkaran Tengah
+                cv2.circle(mapImage,(310,400), 3, (255,255,255), 5)
+                cv2.circle(mapImage,(790,400), 3, (255,255,255), 5)
 
-            textLine = "(0,600)"
-            x, y = worldCoorToImageCoor(0,600)
-            cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
+                textLine = "(0,0)"
+                x, y = worldCoorToImageCoor(0,0)
+                cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
 
-            textLine = "(900,600)"
-            x, y = worldCoorToImageCoor(900,600)
-            cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
+                textLine = "(0,600)"
+                x, y = worldCoorToImageCoor(0,600)
+                cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
 
-            textLine = "(900,0)"
-            x, y = worldCoorToImageCoor(900,0)
-            cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
+                textLine = "(900,600)"
+                x, y = worldCoorToImageCoor(900,600)
+                cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
 
-            drawLandmark = True
-            if drawLandmark == True:
-                for i in range(totalLandmarks):
-                    x, y = worldCoorToImageCoor(int(landmarksPosition[i,0]), int(landmarksPosition[i,1]))
-                    cv2.circle(mapImage,(x, y), 15, (127,0,127), -1)
-            
-            # cv2.imwrite("mapImage.jpg", mapImage)
-            # break
+                textLine = "(900,0)"
+                x, y = worldCoorToImageCoor(900,0)
+                cv2.putText(mapImage, textLine, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 127), 1, cv2.LINE_AA)
+
+                drawLandmark = True
+                if drawLandmark == True:
+                    for i in range(totalLandmarks):
+                        x, y = worldCoorToImageCoor(int(landmarksPosition[i,0]), int(landmarksPosition[i,1]))
+                        cv2.circle(mapImage,(x, y), 15, (127,0,127), -1)
+                
+                # cv2.imwrite("mapImage.jpg", mapImage)
+                # break
 
             # # Get data from kinematic
             if simulationMode == False:
@@ -255,8 +248,7 @@ def main():
                 velFromKinematic[2] = float(strDataFromKinematic[2]) # Va
 
             realVelocity[:] = convertVel(robotID, velFromKinematic)
-            # print "Kinematic Velocity : ", velFromKinematic
-            # print "Real Velocity : ", realVelocity
+
             # Simulate robot movement
             robotLocalPosition[0] += realVelocity[0] * deltaTime
             robotLocalPosition[1] += realVelocity[1] * deltaTime
@@ -268,35 +260,32 @@ def main():
             else:
                 robotLocalPosition[2] += realVelocity[2] * deltaTime
 
-            # motion model heading
+            # Motion model heading
             if robotLocalPosition[2] >= 360:
                 robotLocalPosition[2] = robotLocalPosition[2] - 360
             if robotLocalPosition[2] < 0:
                 robotLocalPosition[2] = 360 + robotLocalPosition[2]
 
-            # Create matrix rotation
             if headingFromIMU:
                 angle = robotLocalPosition[2]
             else:
                 angle = robotInitialPosition[2] + robotLocalPosition[2]
 
-            # motion model heading
             if angle >= 360:
                 angle = angle - 360
             if angle < 0:
                 angle = 360 + angle
+
+            # Create matrix rotation
             theta = np.radians(angle)
             c, s = np.cos(theta), np.sin(theta)
             R = np.array(((c,-s), (s, c)))
-            # Multiply rotation matrix with robot local position x dan y
             npOutMatMul = np.matmul(R, robotLocalPosition[:2]) 
             robotGlobalPosition[0] = npOutMatMul[0] + robotInitialPosition[0]
             robotGlobalPosition[1] = npOutMatMul[1] + robotInitialPosition[1]
             robotGlobalPosition[2] = angle
 
-            # print 'R Global Pos : ', robotGlobalPosition
             # Predict movement of particles
-            # print 'Process ==> Predict movement of particles'
             particlesLocalPosition[:,0] += realVelocity[0] * deltaTime
             particlesLocalPosition[:,1] += realVelocity[1] * deltaTime
             if headingFromIMU:
@@ -314,6 +303,7 @@ def main():
                 particlesLocalPosition[:,1] = normal(particlesLocalPosition[:,1], 10)
                 particlesLocalPosition[:,2] = normal(particlesLocalPosition[:,2], 3)
 
+            # Calculate position of particles in global coordinat
             updateParticlesMovement = True
             if updateParticlesMovement == True:
                 for i in range (0,totalParticles):
@@ -352,9 +342,7 @@ def main():
                         particlesLocalPosition[i,1] = 0
                         particlesLocalPosition[i,2] = 0
 
-            # Update measurement
             # Measurement distance between robot and landmarks
-            
             if simulationMode == True:
                 for i in range (0,totalLandmarks):
                     distanceRobotToLandmarks[i] = distance.euclidean([robotGlobalPosition[:2]], [landmarksPosition[i]])
@@ -362,6 +350,7 @@ def main():
                 distanceRobotToLandmarks[0] = float(strDataFromKinematic[3])
                 distanceRobotToLandmarks[1] = float(strDataFromKinematic[4])
 
+            # Resample only when get valid distance data 
             if distanceRobotToLandmarks[0] > 0 and distanceRobotToLandmarks[1] > 0:
                 resample = True
             else:
@@ -405,19 +394,16 @@ def main():
                 else:
                     estimateLocalPosition[2] += realVelocity[2] * deltaTime
 
-                # motion model heading
                 if estimateLocalPosition[2] >= 360:
                     estimateLocalPosition[2] = estimateLocalPosition[2] - 360
                 if estimateLocalPosition[2] < 0:
                     estimateLocalPosition[2] = 360 + estimateLocalPosition[2]
 
-                # Create matrix rotation
                 if headingFromIMU:
                     angle = estimateLocalPosition[2]
                 else:
                     angle = estimatePosition[2] + estimateLocalPosition[2]
 
-                # motion model heading
                 if angle >= 360:
                     angle = angle - 360
                 if angle < 0:
@@ -425,7 +411,6 @@ def main():
                 theta = np.radians(angle)
                 c, s = np.cos(theta), np.sin(theta)
                 R = np.array(((c,-s), (s, c)))
-                # Multiply rotation matrix with robot local position x dan y
                 npOutMatMul = np.matmul(R, estimateLocalPosition[:2]) 
                 estimatePosition[0] = npOutMatMul[0] + estimatePosition[0]
                 estimatePosition[1] = npOutMatMul[1] + estimatePosition[1]
@@ -439,16 +424,21 @@ def main():
                 ballEstimatePosition[0] = -888
                 ballEstimatePosition[1] = -888
             else:
-                ballDistance = float(strDataFromKinematic[7]) # Jarak bola dari main
+                if simulationMode == False:
+                    ballDistance = float(strDataFromKinematic[7]) # Jarak bola dari main
                 # ini masih dalam koordinat lokal robot
                 ballEstimatePosition[0] = ballDistance
                 ballEstimatePosition[1] = 0
+                # ini nanti ditambahkan sama posisi servo pan
                 theta = np.radians(estimatePosition[2])
                 c, s = np.cos(theta), np.sin(theta)
                 R = np.array(((c,-s), (s, c)))
+                npOutMatMul = np.matmul(R, ballEstimatePosition[:2])
                 ballEstimatePosition[0] = npOutMatMul[0] + estimatePosition[0]
                 ballEstimatePosition[1] = npOutMatMul[1] + estimatePosition[1]
-            # print estimatePosition
+
+            print "Robot Estimate Position : ", estimatePosition
+            print "Ball Estimate Position : ", ballEstimatePosition
             
             drawParticles = True
             if drawParticles == True:
@@ -456,10 +446,10 @@ def main():
                     x, y = worldCoorToImageCoor(int(particlesGlobalPosition[i,0]), int(particlesGlobalPosition[i,1]))
                     cv2.circle(mapImage,(x, y), 7, (0,0,255), -1)
 
-            drawSimRobot = False
+            drawSimRobot = True
             if drawSimRobot == True:
                 x, y = worldCoorToImageCoor(int(robotGlobalPosition[0]), int(robotGlobalPosition[1]))
-                cv2.circle(mapImage,(x, y), 7, (0,255,255), -1)
+                cv2.circle(mapImage,(x, y), 12, (0,255,255), -1)
 
             drawEstimatePosition = True
             if drawEstimatePosition == True:
@@ -496,11 +486,11 @@ def main():
             # Enable URL Streaming
             streamUrl = True
             if streamUrl == True:
-                cv2.imwrite('stream.jpg', mapImage)
+                smallMapImage = cv2.resize(mapImage, None, fx=0.5, fy=0.5, interpolation = cv2.INTER_CUBIC)
+                cv2.imwrite('stream.jpg', smallMapImage)
                 yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + open('stream.jpg', 'rb').read() + b'\r\n')
                     
             # Resample
-            # resample = True
             if resample == True:
                 indexHighestWeight = np.argmax(particlesWeight)
                 xHighest = particlesGlobalPosition[indexHighestWeight,0]
@@ -522,8 +512,6 @@ def main():
 
                 _90PercentParticle = totalParticles - _10PercentParticle
 
-                # _90PercentParticle = totalParticles - 0
-
                 for i in range (_10PercentParticle + 1, _90PercentParticle):
                     particlesInitialPosition[i,0] = normal(xHighest, 50)
                     particlesInitialPosition[i,1] = normal(yHighest, 50)
@@ -535,17 +523,17 @@ def main():
                     particlesLocalPosition[i,1] = 0
                     particlesLocalPosition[i,2] = 0
 
+                if showGUI:
+                    cv2.waitKey(1)
+
+
 if __name__ == "__main__":
     print 'Running BarelangFC - MCL Localization'
     url = "http://127.0.0.1:8888"
-    # print 'OS Name : ', os.name
-    # Run in Windows
     if (os.name == "nt"):
         chromedir= 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe %s'
         webbrowser.get(chromedir).open(url)
     else:
-        # print "unknown OS"
         webbrowser.get(using='chromium-browser').open(url)
-    
     app.run(host='127.0.0.1', port=8888, debug=False, threaded=True)
     
