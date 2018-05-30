@@ -200,21 +200,21 @@ def main():
             loop += 1
             print 'Runtime : {} s'.format(deltaTime*loop) 
 
-            mapFromFile = True
+            mapFromFile = False
             if mapFromFile == True:
                 # image tidak clear
                 mapImage[:] = cv2.imread('mapImage.jpg')
             else:
                 mapImage[:] = (0, 255, 0)
-                cv2.rectangle(mapImage,(100,100),(1000,700),(255,255,255),3) # Garis Luar
-                cv2.rectangle(mapImage,(40,530),(100,270),(255,255,255),3) # Garis Luar Gawang Kiri
-                cv2.rectangle(mapImage,(1000,530),(1060,270),(255,255,255),3) # Garis Luar Gawang Kiri
-                cv2.rectangle(mapImage,(100,650),(200,150),(255,255,255),3) # Garis Luar Gawang Kiri
-                cv2.rectangle(mapImage,(900,650),(1000,150),(255,255,255),3) # Garis Luar Gawang Kiri
-                cv2.line(mapImage,(550,100),(550,700),(255,255,255),3) # Garis Tengah
-                cv2.circle(mapImage,(550,400), 75, (255,255,255), 3) # Lingkaran Tengah
-                cv2.circle(mapImage,(310,400), 3, (255,255,255), 5)
-                cv2.circle(mapImage,(790,400), 3, (255,255,255), 5)
+                cv2.rectangle(mapImage, (100,100), (1000,700), (255,255,255), 3) # Garis Luar
+                cv2.rectangle(mapImage, (40,530), (100,270), (255,255,255), 3) # Garis Luar Gawang Kiri
+                cv2.rectangle(mapImage, (1000,530), (1060,270), (255,255,255), 3) # Garis Luar Gawang Kiri
+                cv2.rectangle(mapImage, (100,650), (200,150), (255,255,255), 3) # Garis Luar Gawang Kiri
+                cv2.rectangle(mapImage, (900,650), (1000,150), (255,255,255), 3) # Garis Luar Gawang Kiri
+                cv2.line(mapImage, (550,100), (550,700), (255,255,255), 3) # Garis Tengah
+                cv2.circle(mapImage, (550,400), 75, (255,255,255), 3) # Lingkaran Tengah
+                cv2.circle(mapImage, (310,400), 3, (255,255,255), 5)
+                cv2.circle(mapImage, (790,400), 3, (255,255,255), 5)
 
                 textLine = "(0,0)"
                 x, y = worldCoorToImageCoor(0,0)
