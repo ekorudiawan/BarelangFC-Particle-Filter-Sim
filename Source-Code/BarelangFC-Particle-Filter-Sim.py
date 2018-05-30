@@ -19,15 +19,16 @@ simulationMode = True
 headingFromIMU = True
 
 # Main configuration to receive data from kinematic
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5005
+MAIN_UDP_IP = "127.0.0.1"
+MAIN_UDP_IN_PORT = 5005
+MAIN_UDP_OUT_PORT = 5006
 
 # Configuration in Cm
 fieldLength = 900
 fieldWidth = 600
 
 # Particles and landmarks
-totalParticles = 100
+totalParticles = 50
 totalLandmarks = 2
 deltaTime = 1
 
@@ -95,6 +96,21 @@ def convertVel(robotId, inputVel):
             outputVel[2] = 0
         else:
             outputVel[2] = 124.78 * inputVel[2] + 1.366
+    elif robotId == 5:
+        if inputVel[0] == 0:
+            outputVel[0] = 0
+        else:
+            outputVel[0] = 315.95 * inputVel[0] - 0.5579
+
+        if inputVel[1] == 0:
+            outputVel[1] = 0
+        else:
+            outputVel[1] = 338.71 * inputVel[1] + 0.9102
+
+        if inputVel[2] == 0:
+            outputVel[2] = 0
+        else:
+            outputVel[2] = 131.66 * inputVel[2] + 0.9137
     return outputVel
 
 def worldCoorToImageCoor(x, y):
@@ -107,12 +123,8 @@ def main():
     robotInitialPosition[0] = 450
     robotInitialPosition[1] = 300
     robotInitialPosition[2] = 0 # Heading
-    robotGlobalPosition[0] = 0
-    robotGlobalPosition[1] = 0
-    robotGlobalPosition[2] = 0 # Heading
-    robotLocalPosition[0] = 0
-    robotLocalPosition[1] = 0
-    robotLocalPosition[2] = 0 # Heading
+    robotGlobalPosition[:] = 0
+    robotLocalPosition[:] = 0
 
     # Initialize landmark position (left and right goal pole)
     landmarksPosition[0,0] = 900
@@ -125,11 +137,12 @@ def main():
     velFromKinematic[2] = 0.00
 
     imuInitHeading = 0
-    imuCurrentHeading = 45
+    imuCurrentHeading = 0
 
     ballDistance = 20
+    panAngle = -45
 
-    defineInitialPosition = True
+    defineInitialPosition = False
     if defineInitialPosition == True:
         # Create 90 percent random particles from defined initial position and 10 percent from random uniform
         estimatePosition[0] = 450
@@ -142,12 +155,8 @@ def main():
             particlesInitialPosition[i,0] = uniform(0, fieldLength)
             particlesInitialPosition[i,1] = uniform(0, fieldWidth)
             particlesInitialPosition[i,2] = uniform(0, 360)
-            particlesGlobalPosition[i,0] = 0
-            particlesGlobalPosition[i,1] = 0
-            particlesGlobalPosition[i,2] = 0
-            particlesLocalPosition[i,0] = 0
-            particlesLocalPosition[i,1] = 0
-            particlesLocalPosition[i,2] = 0
+            particlesGlobalPosition[i,:] = 0
+            particlesLocalPosition[i,:] = 0
 
         _90PercentParticle = totalParticles - _10PercentParticle
 
@@ -155,12 +164,8 @@ def main():
             particlesInitialPosition[i,0] = normal(estimatePosition[0], 50)
             particlesInitialPosition[i,1] = normal(estimatePosition[1], 50)
             particlesInitialPosition[i,2] = normal(estimatePosition[2], 10)
-            particlesGlobalPosition[i,0] = 0
-            particlesGlobalPosition[i,1] = 0
-            particlesGlobalPosition[i,2] = 0
-            particlesLocalPosition[i,0] = 0
-            particlesLocalPosition[i,1] = 0
-            particlesLocalPosition[i,2] = 0
+            particlesGlobalPosition[i,:] = 0
+            particlesLocalPosition[i,:] = 0
     else:
         # Create random uniform position of particles
         particlesInitialPosition[:,0] = uniform(0, fieldLength, size=totalParticles)
@@ -168,18 +173,14 @@ def main():
         particlesInitialPosition[:,2] = uniform(0, 360, size=totalParticles) 
 
     # Zero all global and local position of particles
-    particlesGlobalPosition[:,0] = 0
-    particlesGlobalPosition[:,1] = 0
-    particlesGlobalPosition[:,2] = 0
-    particlesLocalPosition[:,0] = 0
-    particlesLocalPosition[:,1] = 0
-    particlesLocalPosition[:,2] = 0
+    particlesGlobalPosition[:,:] = 0
+    particlesLocalPosition[:,:] = 0
 
     # Create UDP client to receive data from kinematic
     if simulationMode == False:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 
-            sock.bind((UDP_IP, UDP_PORT))
+            sock.bind((MAIN_UDP_IP, MAIN_UDP_IN_PORT))
         except socket.error:
             print 'Failed to create socket'
             sys.exit()
@@ -201,6 +202,7 @@ def main():
 
             mapFromFile = True
             if mapFromFile == True:
+                # image tidak clear
                 mapImage[:] = cv2.imread('mapImage.jpg')
             else:
                 mapImage[:] = (0, 255, 0)
@@ -249,6 +251,14 @@ def main():
 
             realVelocity[:] = convertVel(robotID, velFromKinematic)
 
+            # Kalau keluar lapangan random posisi robot yg baru
+            if robotGlobalPosition[0] < 0 or robotGlobalPosition[0] >= fieldLength or robotGlobalPosition[1] < 0 or robotGlobalPosition[1] >= fieldWidth:
+                robotInitialPosition[0] = uniform(0, fieldLength)
+                robotInitialPosition[1] = uniform(0, fieldWidth)
+                robotInitialPosition[2] = uniform(0, 360)
+                robotGlobalPosition[:] = 0
+                robotLocalPosition[:] = 0
+
             # Simulate robot movement
             robotLocalPosition[0] += realVelocity[0] * deltaTime
             robotLocalPosition[1] += realVelocity[1] * deltaTime
@@ -284,7 +294,7 @@ def main():
             robotGlobalPosition[0] = npOutMatMul[0] + robotInitialPosition[0]
             robotGlobalPosition[1] = npOutMatMul[1] + robotInitialPosition[1]
             robotGlobalPosition[2] = angle
-
+ 
             # Predict movement of particles
             particlesLocalPosition[:,0] += realVelocity[0] * deltaTime
             particlesLocalPosition[:,1] += realVelocity[1] * deltaTime
@@ -331,16 +341,20 @@ def main():
                     particlesGlobalPosition[i,2] = angle
 
                     # Jika keluar lapangan random partikel yang baru di sekitar estimate position terakhir
-                    if particlesGlobalPosition[i,0] < 0 or particlesGlobalPosition[i,1] < 0 or particlesGlobalPosition[i,0] > fieldLength or particlesGlobalPosition[i,1] > fieldWidth:
-                        particlesInitialPosition[i,0] = normal(estimatePosition[0], 50)
-                        particlesInitialPosition[i,1] = normal(estimatePosition[1], 50)
-                        particlesInitialPosition[i,2] = normal(estimatePosition[2], 10)
-                        particlesGlobalPosition[i,0] = 0
-                        particlesGlobalPosition[i,1] = 0
-                        particlesGlobalPosition[i,2] = 0
-                        particlesLocalPosition[i,0] = 0
-                        particlesLocalPosition[i,1] = 0
-                        particlesLocalPosition[i,2] = 0
+                    if particlesGlobalPosition[i,0] < 0 or particlesGlobalPosition[i,1] < 0 or particlesGlobalPosition[i,0] >= fieldLength or particlesGlobalPosition[i,1] >= fieldWidth:
+                        # Cek kalau estimatenya tdk nan atau inf
+                        if math.isnan(estimatePosition[0]) or math.isnan(estimatePosition[1]) or math.isnan(estimatePosition[2]) or math.isinf(estimatePosition[0]) or math.isinf(estimatePosition[1]) or math.isinf(estimatePosition[2]):
+                            particlesInitialPosition[i,0] = uniform(0, fieldLength)
+                            particlesInitialPosition[i,1] = uniform(0, fieldWidth)
+                            particlesInitialPosition[i,2] = uniform(0, 3650)
+                            particlesGlobalPosition[i,:] = 0
+                            particlesLocalPosition[i,:] = 0
+                        else:
+                            particlesInitialPosition[i,0] = normal(estimatePosition[0], 50)
+                            particlesInitialPosition[i,1] = normal(estimatePosition[1], 50)
+                            particlesInitialPosition[i,2] = normal(estimatePosition[2], 10)
+                            particlesGlobalPosition[i,:] = 0
+                            particlesLocalPosition[i,:] = 0
 
             # Measurement distance between robot and landmarks
             if simulationMode == True:
@@ -379,9 +393,7 @@ def main():
             # Jika ada perintah resample
             if resample == True:
                 estimatePosition[:] = np.average(particlesGlobalPosition, weights=particlesWeight, axis=0)
-                estimateLocalPosition[0] = 0
-                estimateLocalPosition[1] = 0
-                estimateLocalPosition[2] = 0
+                estimateLocalPosition[:] = 0
             # Jka tidak update estimate position dengan data dari kinematik
             else:
                 estimateLocalPosition[0] += realVelocity[0] * deltaTime
@@ -418,27 +430,36 @@ def main():
             
             # Mark as -888 if result infinity or nan
             if math.isnan(estimatePosition[0]) or math.isnan(estimatePosition[1]) or math.isnan(estimatePosition[2]) or math.isinf(estimatePosition[0]) or math.isinf(estimatePosition[1]) or math.isinf(estimatePosition[2]):
-                estimatePosition[0] = -888
-                estimatePosition[1] = -888
-                estimatePosition[2] = -888
-                ballEstimatePosition[0] = -888
-                ballEstimatePosition[1] = -888
+                estimatePosition[:] = -888
+                ballEstimatePosition[:] = -888
+                # random uniform lagi
             else:
                 if simulationMode == False:
                     ballDistance = float(strDataFromKinematic[7]) # Jarak bola dari main
+                    panAngle = float(strDataFromKinematic[8])
                 # ini masih dalam koordinat lokal robot
                 ballEstimatePosition[0] = ballDistance
                 ballEstimatePosition[1] = 0
                 # ini nanti ditambahkan sama posisi servo pan
-                theta = np.radians(estimatePosition[2])
+                headHeading = estimatePosition[2] + panAngle
+                if headHeading  >= 360:
+                    headHeading = headHeading  - 360
+                if headHeading  < 0:
+                    headHeading  = 360 + headHeading 
+                theta = np.radians(headHeading)
                 c, s = np.cos(theta), np.sin(theta)
                 R = np.array(((c,-s), (s, c)))
                 npOutMatMul = np.matmul(R, ballEstimatePosition[:2])
                 ballEstimatePosition[0] = npOutMatMul[0] + estimatePosition[0]
                 ballEstimatePosition[1] = npOutMatMul[1] + estimatePosition[1]
 
+            print "Robot Global Position : ", robotGlobalPosition
             print "Robot Estimate Position : ", estimatePosition
             print "Ball Estimate Position : ", ballEstimatePosition
+            # Kirim X, Y, Theta Robot, Ball X, Ball Y
+            if simulationMode == False:
+                msgToMainProgram = "{},{},{},{},{}".format(int(estimatePosition[0]), int(estimatePosition[1]), int(estimatePosition[2]), int(ballEstimatePosition[0]), int(ballEstimatePosition[1])) 
+                sock.sendto(msgToMainProgram, (MAIN_UDP_IP, MAIN_UDP_OUT_PORT))
             
             drawParticles = True
             if drawParticles == True:
@@ -503,25 +524,27 @@ def main():
                     particlesInitialPosition[i,0] = uniform(0, fieldLength)
                     particlesInitialPosition[i,1] = uniform(0, fieldWidth)
                     particlesInitialPosition[i,2] = uniform(0, 360)
-                    particlesGlobalPosition[i,0] = 0
-                    particlesGlobalPosition[i,1] = 0
-                    particlesGlobalPosition[i,2] = 0
-                    particlesLocalPosition[i,0] = 0
-                    particlesLocalPosition[i,1] = 0
-                    particlesLocalPosition[i,2] = 0
+                    particlesGlobalPosition[i,:] = 0
+                    particlesLocalPosition[i,:] = 0
 
                 _90PercentParticle = totalParticles - _10PercentParticle
 
                 for i in range (_10PercentParticle + 1, _90PercentParticle):
-                    particlesInitialPosition[i,0] = normal(xHighest, 50)
-                    particlesInitialPosition[i,1] = normal(yHighest, 50)
-                    particlesInitialPosition[i,2] = normal(thetaHighest, 10)
-                    particlesGlobalPosition[i,0] = 0
-                    particlesGlobalPosition[i,1] = 0
-                    particlesGlobalPosition[i,2] = 0
-                    particlesLocalPosition[i,0] = 0
-                    particlesLocalPosition[i,1] = 0
-                    particlesLocalPosition[i,2] = 0
+                    # particlesInitialPosition[i,0] = normal(xHighest, 50)
+                    # particlesInitialPosition[i,1] = normal(yHighest, 50)
+                    # particlesInitialPosition[i,2] = normal(thetaHighest, 10)
+                    if math.isnan(estimatePosition[0]) or math.isnan(estimatePosition[1]) or math.isnan(estimatePosition[2]) or math.isinf(estimatePosition[0]) or math.isinf(estimatePosition[1]) or math.isinf(estimatePosition[2]):
+                        particlesInitialPosition[i,0] = uniform(0, fieldLength)
+                        particlesInitialPosition[i,1] = uniform(0, fieldWidth)
+                        particlesInitialPosition[i,2] = uniform(0, 360)
+                        particlesGlobalPosition[i,:] = 0
+                        particlesLocalPosition[i,:] = 0
+                    else:
+                        particlesInitialPosition[i,0] = normal(estimatePosition[0], 50)
+                        particlesInitialPosition[i,1] = normal(estimatePosition[1], 50)
+                        particlesInitialPosition[i,2] = normal(estimatePosition[2], 10)
+                        particlesGlobalPosition[i,:] = 0
+                        particlesLocalPosition[i,:] = 0
 
                 if showGUI:
                     cv2.waitKey(1)
@@ -529,11 +552,11 @@ def main():
 
 if __name__ == "__main__":
     print 'Running BarelangFC - MCL Localization'
-    url = "http://127.0.0.1:8888"
+    url = "http://0.0.0.0:8888"
     if (os.name == "nt"):
         chromedir= 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe %s'
         webbrowser.get(chromedir).open(url)
     else:
-        webbrowser.get(using='chromium-browser').open(url)
-    app.run(host='127.0.0.1', port=8888, debug=False, threaded=True)
+        webbrowser.get(using='firefox').open_new_tab(url)
+    app.run(host='0.0.0.0', port=8888, debug=False, threaded=True)
     
