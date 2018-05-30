@@ -97,6 +97,8 @@ def main():
 
     # Estimate position
     estimatePosition = np.zeros((3))
+    estimateLocalPosition = np.zeros((3))
+    ballEstimatePosition = np.zeros((2))
 
     distanceRobotToLandmarks = np.zeros((totalLandmarks))
     distanceParticlesToLandmarks = np.zeros((totalParticles, totalLandmarks))
@@ -130,6 +132,8 @@ def main():
 
     imuInitHeading = 0
     imuCurrentHeading = 45
+
+    ballDistance = 0
 
     defineInitialPosition = True
 
@@ -195,8 +199,6 @@ def main():
     nowTime = 0
     lastTime = 0
     loop = 0
-
-    # print rand(100)
 
     while True:
         # linux
@@ -388,19 +390,64 @@ def main():
             # Jika ada perintah resample
             if resample == True:
                 estimatePosition[:] = np.average(particlesGlobalPosition, weights=particlesWeight, axis=0)
+                estimateLocalPosition[0] = 0
+                estimateLocalPosition[1] = 0
+                estimateLocalPosition[2] = 0
             # Jka tidak update estimate position dengan data dari kinematik
-            # else:
-            #     estimatePosition[:] = np.average(particlesGlobalPosition, weights=particlesWeight, axis=0)
+            else:
+                estimateLocalPosition[0] += realVelocity[0] * deltaTime
+                estimateLocalPosition[1] += realVelocity[1] * deltaTime
+                if headingFromIMU:
+                    if simulationMode == False:
+                        imuInitHeading = float(strDataFromKinematic[5])
+                        imuCurrentHeading = float(strDataFromKinematic[6])
+                    estimateLocalPosition[2] = imuCurrentHeading - imuInitHeading
+                else:
+                    estimateLocalPosition[2] += realVelocity[2] * deltaTime
+
+                # motion model heading
+                if estimateLocalPosition[2] >= 360:
+                    estimateLocalPosition[2] = estimateLocalPosition[2] - 360
+                if estimateLocalPosition[2] < 0:
+                    estimateLocalPosition[2] = 360 + estimateLocalPosition[2]
+
+                # Create matrix rotation
+                if headingFromIMU:
+                    angle = estimateLocalPosition[2]
+                else:
+                    angle = estimatePosition[2] + estimateLocalPosition[2]
+
+                # motion model heading
+                if angle >= 360:
+                    angle = angle - 360
+                if angle < 0:
+                    angle = 360 + angle
+                theta = np.radians(angle)
+                c, s = np.cos(theta), np.sin(theta)
+                R = np.array(((c,-s), (s, c)))
+                # Multiply rotation matrix with robot local position x dan y
+                npOutMatMul = np.matmul(R, estimateLocalPosition[:2]) 
+                estimatePosition[0] = npOutMatMul[0] + estimatePosition[0]
+                estimatePosition[1] = npOutMatMul[1] + estimatePosition[1]
+                estimatePosition[2] = angle
             
             # Mark as -888 if result infinity or nan
-            if math.isnan(estimatePosition[0]) or math.isnan(estimatePosition[1]) or math.isnan(estimatePosition[2]):
+            if math.isnan(estimatePosition[0]) or math.isnan(estimatePosition[1]) or math.isnan(estimatePosition[2]) or math.isinf(estimatePosition[0]) or math.isinf(estimatePosition[1]) or math.isinf(estimatePosition[2]):
                 estimatePosition[0] = -888
                 estimatePosition[1] = -888
                 estimatePosition[2] = -888
-            if math.isinf(estimatePosition[0]) or math.isinf(estimatePosition[1]) or math.isinf(estimatePosition[2]):
-                estimatePosition[0] = -888
-                estimatePosition[1] = -888
-                estimatePosition[2] = -888
+                ballEstimatePosition[0] = -888
+                ballEstimatePosition[1] = -888
+            else:
+                ballDistance = float(strDataFromKinematic[7]) # Jarak bola dari main
+                # ini masih dalam koordinat lokal robot
+                ballEstimatePosition[0] = ballDistance
+                ballEstimatePosition[1] = 0
+                theta = np.radians(estimatePosition[2])
+                c, s = np.cos(theta), np.sin(theta)
+                R = np.array(((c,-s), (s, c)))
+                ballEstimatePosition[0] = npOutMatMul[0] + estimatePosition[0]
+                ballEstimatePosition[1] = npOutMatMul[1] + estimatePosition[1]
             # print estimatePosition
             
             drawParticles = True
@@ -409,7 +456,7 @@ def main():
                     x, y = worldCoorToImageCoor(int(particlesGlobalPosition[i,0]), int(particlesGlobalPosition[i,1]))
                     cv2.circle(mapImage,(x, y), 7, (0,0,255), -1)
 
-            drawSimRobot = True
+            drawSimRobot = False
             if drawSimRobot == True:
                 x, y = worldCoorToImageCoor(int(robotGlobalPosition[0]), int(robotGlobalPosition[1]))
                 cv2.circle(mapImage,(x, y), 7, (0,255,255), -1)
@@ -418,7 +465,15 @@ def main():
             if drawEstimatePosition == True:
                 try:
                     x, y = worldCoorToImageCoor(int(estimatePosition[0]), int(estimatePosition[1]))
-                    cv2.circle(mapImage,(x, y), 7, (255,0,0), -1)
+                    cv2.circle(mapImage,(x, y), 12, (255,0,0), -1)
+                except:
+                    pass
+            
+            drawBallEstimatePosition = True
+            if drawBallEstimatePosition == True:
+                try:
+                    x, y = worldCoorToImageCoor(int(ballEstimatePosition[0]), int(ballEstimatePosition[1]))
+                    cv2.circle(mapImage,(x, y), 10, (255,255,0), -1)
                 except:
                     pass
 
