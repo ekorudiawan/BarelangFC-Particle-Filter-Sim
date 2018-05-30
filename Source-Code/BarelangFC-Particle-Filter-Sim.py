@@ -3,10 +3,7 @@ import socket
 import sys
 import numpy as np
 from numpy.random import uniform
-from numpy.random import randint
-from numpy.random import randn
 from numpy.random import normal
-import matplotlib.pyplot as plt
 import scipy.stats
 from time import sleep
 import math
@@ -17,6 +14,10 @@ import time
 from scipy.spatial import distance
 import os
 
+# Set False for real localization
+simulationMode = True
+headingFromIMU = True
+
 # Main configuration
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
@@ -26,7 +27,7 @@ fieldLength = 900
 fieldWidth = 600
 totalParticles = 100
 totalLandmarks = 2
-deltaTime = 0.5
+deltaTime = 1
 
 # Flask Webserver
 ##############################################################################
@@ -86,15 +87,16 @@ def main():
     robotInitialPosition = np.zeros((3))
     robotLocalPosition = np.zeros((3))
 
-    # Estimate position
-    estimatePosition = np.zeros((3))
-
     # Landmarks position 2D array
     landmarksPosition = np.zeros((totalLandmarks, 2))
 
+    # Particles position
     particlesGlobalPosition = np.zeros((totalParticles, 3))
     particlesLocalPosition = np.zeros((totalParticles, 3))
     particlesInitialPosition = np.zeros((totalParticles, 3))
+
+    # Estimate position
+    estimatePosition = np.zeros((3))
 
     distanceRobotToLandmarks = np.zeros((totalLandmarks))
     distanceParticlesToLandmarks = np.zeros((totalParticles, totalLandmarks))
@@ -108,34 +110,65 @@ def main():
     robotInitialPosition[0] = 450
     robotInitialPosition[1] = 300
     robotInitialPosition[2] = 0 # Heading
-
     robotGlobalPosition[0] = 0
     robotGlobalPosition[1] = 0
     robotGlobalPosition[2] = 0 # Heading
-
     robotLocalPosition[0] = 0
     robotLocalPosition[1] = 0
     robotLocalPosition[2] = 0 # Heading
 
     # Initialize landmark position
-    landmarksPosition[:,0] = uniform(0, fieldLength, size=totalLandmarks)
-    landmarksPosition[:,1] = uniform(0, fieldWidth, size=totalLandmarks)
-
     # Gawang lawan
     landmarksPosition[0,0] = 900
     landmarksPosition[0,1] = 170
     landmarksPosition[1,0] = 900
     landmarksPosition[1,1] = 430
   
-    velFromKinematic[0] = 0.02
+    velFromKinematic[0] = 0.03
     velFromKinematic[1] = 0.00
-    velFromKinematic[2] = 0.3
+    velFromKinematic[2] = 0.00
 
-    # Create random position of particles
-    # print 'Process ==> Create random particles'
-    particlesInitialPosition[:,0] = uniform(0, fieldLength, size=totalParticles)
-    particlesInitialPosition[:,1] = uniform(0, fieldWidth, size=totalParticles)
-    particlesInitialPosition[:,2] = uniform(0, 360, size=totalParticles) 
+    imuInitHeading = 0
+    imuCurrentHeading = 45
+
+    defineInitialPosition = True
+
+    if defineInitialPosition == True:
+        # Create 90 percent random particles from defined initial position and 10 percent from random uniform
+        estimatePosition[0] = 450
+        estimatePosition[1] = 300
+        estimatePosition[2] = 0 # Menghadap ke arah gawang lawan
+
+        _10PercentParticle = int(totalParticles * 0.1)
+
+        for i in range (0, _10PercentParticle):
+            particlesInitialPosition[i,0] = uniform(0, fieldLength)
+            particlesInitialPosition[i,1] = uniform(0, fieldWidth)
+            particlesInitialPosition[i,2] = uniform(0, 360)
+            particlesGlobalPosition[i,0] = 0
+            particlesGlobalPosition[i,1] = 0
+            particlesGlobalPosition[i,2] = 0
+            particlesLocalPosition[i,0] = 0
+            particlesLocalPosition[i,1] = 0
+            particlesLocalPosition[i,2] = 0
+
+        _90PercentParticle = totalParticles - _10PercentParticle
+
+        for i in range (_10PercentParticle + 1, _90PercentParticle):
+            particlesInitialPosition[i,0] = normal(estimatePosition[0], 50)
+            particlesInitialPosition[i,1] = normal(estimatePosition[1], 50)
+            particlesInitialPosition[i,2] = normal(estimatePosition[2], 10)
+            particlesGlobalPosition[i,0] = 0
+            particlesGlobalPosition[i,1] = 0
+            particlesGlobalPosition[i,2] = 0
+            particlesLocalPosition[i,0] = 0
+            particlesLocalPosition[i,1] = 0
+            particlesLocalPosition[i,2] = 0
+    else:
+        # Create random uniform position of particles
+        particlesInitialPosition[:,0] = uniform(0, fieldLength, size=totalParticles)
+        particlesInitialPosition[:,1] = uniform(0, fieldWidth, size=totalParticles)
+        particlesInitialPosition[:,2] = uniform(0, 360, size=totalParticles) 
 
     # print "Particles Initial Position", particlesInitialPosition
 
@@ -150,12 +183,13 @@ def main():
     # print particlesGlobalPosition
 
     # Create UDP client to receive data from kinematic
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 
-        sock.bind((UDP_IP, UDP_PORT))
-    except socket.error:
-        print 'Failed to create socket'
-        sys.exit()
+    if simulationMode == False:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 
+            sock.bind((UDP_IP, UDP_PORT))
+        except socket.error:
+            print 'Failed to create socket'
+            sys.exit()
 
     # Nilai timing
     nowTime = 0
@@ -168,11 +202,12 @@ def main():
         # linux
         nowTime = time.clock()
         timer = nowTime - lastTime
+        halfDeltaTime = deltaTime / 2.00
         # print 'Timer : ', timer
-        if (timer > deltaTime):
+        if timer > halfDeltaTime:
+            lastTime = nowTime
             loop += 1
             print 'Runtime : {} s'.format(deltaTime*loop) 
-            lastTime = nowTime
             mapImage[:] = (0, 255, 0)
             cv2.rectangle(mapImage,(100,100),(1000,700),(255,255,255),3) # GARIS LUAR
             cv2.rectangle(mapImage,(40,530),(100,270),(255,255,255),3) #garis LUAR gawang kiri
@@ -210,13 +245,12 @@ def main():
             # break
 
             # # Get data from kinematic
-            data, _ = sock.recvfrom(1024) # buffer size is 1024 bytes
-            # print "Vel Input : ", data
-            
-            strVelFromKinematic = data.split(",")
-            velFromKinematic[0] = float(strVelFromKinematic[0])
-            velFromKinematic[1] = float(strVelFromKinematic[1])
-            velFromKinematic[2] = float(strVelFromKinematic[2])
+            if simulationMode == False:
+                data, _ = sock.recvfrom(1024) # buffer size is 1024 bytes
+                strDataFromKinematic = data.split(",")
+                velFromKinematic[0] = float(strDataFromKinematic[0]) # Vx
+                velFromKinematic[1] = float(strDataFromKinematic[1]) # Vy
+                velFromKinematic[2] = float(strDataFromKinematic[2]) # Va
 
             realVelocity[:] = convertVel(robotID, velFromKinematic)
             # print "Kinematic Velocity : ", velFromKinematic
@@ -224,21 +258,31 @@ def main():
             # Simulate robot movement
             robotLocalPosition[0] += realVelocity[0] * deltaTime
             robotLocalPosition[1] += realVelocity[1] * deltaTime
-            robotLocalPosition[2] += realVelocity[2] * deltaTime
+            if headingFromIMU:
+                if simulationMode == False:
+                    imuInitHeading = float(strDataFromKinematic[5])
+                    imuCurrentHeading = float(strDataFromKinematic[6])
+                robotLocalPosition[2] = imuCurrentHeading - imuInitHeading
+            else:
+                robotLocalPosition[2] += realVelocity[2] * deltaTime
+
             # motion model heading
             if robotLocalPosition[2] >= 360:
-                robotLocalPosition[2] = 0
+                robotLocalPosition[2] = robotLocalPosition[2] - 360
             if robotLocalPosition[2] < 0:
-                robotLocalPosition[2] = 359
-            # print 'R Local Pos : ', robotLocalPosition
+                robotLocalPosition[2] = 360 + robotLocalPosition[2]
 
             # Create matrix rotation
-            angle = robotInitialPosition[2] + robotLocalPosition[2]
+            if headingFromIMU:
+                angle = robotLocalPosition[2]
+            else:
+                angle = robotInitialPosition[2] + robotLocalPosition[2]
+
             # motion model heading
             if angle >= 360:
-                angle = 0
+                angle = angle - 360
             if angle < 0:
-                angle = 359
+                angle = 360 + angle
             theta = np.radians(angle)
             c, s = np.cos(theta), np.sin(theta)
             R = np.array(((c,-s), (s, c)))
@@ -249,12 +293,17 @@ def main():
             robotGlobalPosition[2] = angle
 
             # print 'R Global Pos : ', robotGlobalPosition
-
             # Predict movement of particles
             # print 'Process ==> Predict movement of particles'
             particlesLocalPosition[:,0] += realVelocity[0] * deltaTime
             particlesLocalPosition[:,1] += realVelocity[1] * deltaTime
-            particlesLocalPosition[:,2] += realVelocity[2] * deltaTime
+            if headingFromIMU:
+                if simulationMode == False:
+                    imuInitHeading = float(strDataFromKinematic[5])
+                    imuCurrentHeading = float(strDataFromKinematic[6])
+                particlesLocalPosition[:,2] = imuCurrentHeading - imuInitHeading
+            else:
+                particlesLocalPosition[:,2] += realVelocity[2] * deltaTime
             
             # Simulate noise movement of robot with error stddev = 10
             simulateNoiseMovement = False
@@ -266,15 +315,21 @@ def main():
             updateParticlesMovement = True
             if updateParticlesMovement == True:
                 for i in range (0,totalParticles):
-                    if particlesLocalPosition[i, 2] >= 360:
-                        particlesLocalPosition[i, 2] = 0
-                    if particlesLocalPosition[i, 2] < 0:
-                        particlesLocalPosition[i, 2] = 359
-                    angle = particlesInitialPosition[i,2] + particlesLocalPosition[i,2]
+                    if particlesLocalPosition[i,2] >= 360:
+                        particlesLocalPosition[i,2] = particlesLocalPosition[i,2] - 360
+                    if particlesLocalPosition[i,2] < 0:
+                        particlesLocalPosition[i,2] = 360 + particlesLocalPosition[i,2]
+                    # Kalau pakai data IMU dianggap tidak ada rotasi 
+                    if headingFromIMU:
+                        angle = particlesLocalPosition[i,2]
+                    # Kalau pakai yaw rate ditambahkan dulu dengan initial position
+                    else:
+                        angle = particlesInitialPosition[i,2] + particlesLocalPosition[i,2]
+                    # Check limit bearing
                     if angle >= 360:
-                        angle = 0
+                        angle = angle - 360
                     if angle < 0:
-                        angle = 359
+                        angle = 360 + angle
                     theta = np.radians(angle)
                     c, s = np.cos(theta), np.sin(theta)
                     R = np.array(((c,-s), (s, c)))
@@ -282,42 +337,39 @@ def main():
                     particlesGlobalPosition[i,0] = npOutMatMul[0] + particlesInitialPosition[i,0]
                     particlesGlobalPosition[i,1] = npOutMatMul[1] + particlesInitialPosition[i,1]
                     particlesGlobalPosition[i,2] = angle
-                    # Jika keluar lapangan random partikel yang baru
+
+                    # Jika keluar lapangan random partikel yang baru di sekitar estimate position terakhir
                     if particlesGlobalPosition[i,0] < 0 or particlesGlobalPosition[i,1] < 0 or particlesGlobalPosition[i,0] > fieldLength or particlesGlobalPosition[i,1] > fieldWidth:
-                        particlesInitialPosition[i, 0] = uniform(0, fieldLength)
-                        particlesInitialPosition[i, 1] = uniform(0, fieldWidth)
-                        particlesInitialPosition[i, 2] = uniform(0, 360)
-                        particlesGlobalPosition[i, 0] = 0
-                        particlesGlobalPosition[i, 1] = 0
-                        particlesGlobalPosition[i, 2] = 0
-                        particlesLocalPosition[i, 0] = 0
-                        particlesLocalPosition[i, 1] = 0
-                        particlesLocalPosition[i, 2] = 0
-            
+                        particlesInitialPosition[i,0] = normal(estimatePosition[0], 50)
+                        particlesInitialPosition[i,1] = normal(estimatePosition[1], 50)
+                        particlesInitialPosition[i,2] = normal(estimatePosition[2], 10)
+                        particlesGlobalPosition[i,0] = 0
+                        particlesGlobalPosition[i,1] = 0
+                        particlesGlobalPosition[i,2] = 0
+                        particlesLocalPosition[i,0] = 0
+                        particlesLocalPosition[i,1] = 0
+                        particlesLocalPosition[i,2] = 0
 
             # Update measurement
             # Measurement distance between robot and landmarks
-            # for i in range (0,totalLandmarks):
-            #     distanceRobotToLandmarks[i] = distance.euclidean([robotGlobalPosition[:2]], [landmarksPosition[i]])
-            distanceRobotToLandmarks[0] = float(strVelFromKinematic[3])
-            distanceRobotToLandmarks[1] = float(strVelFromKinematic[4])
+            
+            if simulationMode == True:
+                for i in range (0,totalLandmarks):
+                    distanceRobotToLandmarks[i] = distance.euclidean([robotGlobalPosition[:2]], [landmarksPosition[i]])
+            else:
+                distanceRobotToLandmarks[0] = float(strDataFromKinematic[3])
+                distanceRobotToLandmarks[1] = float(strDataFromKinematic[4])
+
             if distanceRobotToLandmarks[0] > 0 and distanceRobotToLandmarks[1] > 0:
                 resample = True
             else:
                 resample = False
-            # # print 'distance robot to l', distanceRobotToLandmarks
-                # distanceRobotToLandmarks[i] = math.hypot(robotGlobalPosition[0] - landmarksPosition[i,0], robotGlobalPosition[1] - landmarksPosition[i,1])
-                # Simulate noise with random gaussian from measurment
-                # distanceRobotToLandmarks[i] = normal(distanceRobotToLandmarks[i], 10)
-            # print 'Distance Robot to Landmarks :'
-            # print distanceRobotToLandmarks
+
             # Measurement distance between particles and landmarks
             for i in range (0, totalParticles):
                 for j in range (0, totalLandmarks):
                     distanceParticlesToLandmarks[i,j] = distance.euclidean([particlesGlobalPosition[i,:2]], [landmarksPosition[j]])
-                    # distanceParticlesToLandmarks[i,j] = math.hypot(particlesGlobalPosition[i,0] - landmarksPosition[j,0], particlesGlobalPosition[i,1] - landmarksPosition[j,1])
-            # print 'Distance Particles to Landmarks :'
-            # print distanceParticlesToLandmarks
+
             # Calculating weight
             # Initialize particles weight with 1.00
             particlesWeight.fill(1.0)
@@ -326,20 +378,26 @@ def main():
                     # mean = jarak robot ke landmark
                     # stddev = 5
                     particlesWeight[i] *= scipy.stats.norm.pdf(distanceParticlesToLandmarks[i,j],distanceRobotToLandmarks[j],5)
+        
             # Normalize weight
             totalWeight = sum(particlesWeight)
             for i in range (0, totalParticles):
                 particlesWeight[i] = particlesWeight[i] / totalWeight
-            # print 'Particles Weight'
-            # np.set_printoptions(precision=2, suppress=True)
-            # print particlesWeight
 
             # Calculate estimate position
-            # pos = particlesGlobalPosition[:, 0:2]
-
-            estimatePosition[:] = np.average(particlesGlobalPosition, weights=particlesWeight, axis=0)
-
+            # Jika ada perintah resample
+            if resample == True:
+                estimatePosition[:] = np.average(particlesGlobalPosition, weights=particlesWeight, axis=0)
+            # Jka tidak update estimate position dengan data dari kinematik
+            # else:
+            #     estimatePosition[:] = np.average(particlesGlobalPosition, weights=particlesWeight, axis=0)
+            
+            # Mark as -888 if result infinity or nan
             if math.isnan(estimatePosition[0]) or math.isnan(estimatePosition[1]) or math.isnan(estimatePosition[2]):
+                estimatePosition[0] = -888
+                estimatePosition[1] = -888
+                estimatePosition[2] = -888
+            if math.isinf(estimatePosition[0]) or math.isinf(estimatePosition[1]) or math.isinf(estimatePosition[2]):
                 estimatePosition[0] = -888
                 estimatePosition[1] = -888
                 estimatePosition[2] = -888
